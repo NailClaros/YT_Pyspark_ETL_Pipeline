@@ -8,12 +8,15 @@ google-api-core==2.25.1
 google-api-python-client==2.184.0
 google-auth==2.41.1
 google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.2
 googleapis-common-protos==1.70.0
+gspread==6.2.1
 httplib2==0.31.0
 idna==3.10
 jmespath==1.0.1
 kagglehub==0.3.13
 numpy==2.3.3
+oauthlib==3.3.1
 packaging==25.0
 pandas==2.3.3
 proto-plus==1.26.1
@@ -29,6 +32,7 @@ python-dotenv==1.1.1
 pytz==2025.2
 PyYAML==6.0.3
 requests==2.32.5
+requests-oauthlib==2.0.0
 rsa==4.9.1
 s3transfer==0.14.0
 six==1.17.0

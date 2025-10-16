@@ -8,7 +8,7 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
     """
         Fetches the most popular videos from YouTube API.
         size: Number of videos to fetch (max 50 and defaults to 5).
-        yt_key: Optional YouTube API key. If not provided, uses the environment variable.
+        yt_key: Optional YouTube API key. If not provided, uses the environment variable YT_API_KEY.
         Returns a list of dictionaries with video IDs as keys and metadata (title, views, tags) as values.
     """
     if not yt_key:
@@ -55,6 +55,10 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
             }
 
             results.append(record)
+            
+            # import pprint
+            # pprint.pprint(record)    
+            # print("------")
 
             # for key, value in record.items():
             #     print(f"{key}: {value}")
@@ -71,6 +75,7 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
 ## Good way to test the function
 # res = run_yt_api(os.getenv("YT_API_KEY"), size=10)
 
+## Test code for db insertion
 # from db import add_video_P, add_trending_snapshot_P
 
 # db_inset = add_video_P(res, env="test", schema="aq_test_local")
@@ -84,3 +89,22 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
 # print(f"Total videos fetched: {len(res)}")
 
 # print(f"{len(res)} videos added to the database.")
+
+
+## Test code for CSV writing
+
+# from writers import update_videos_csv, update_trending_csv
+
+# update_videos_csv(res, file_path="vids.csv")
+
+# update_trending_csv(res, file_path="snapshots.csv")
+
+
+
+## Test code for Google Sheets writing
+
+# from g_sheets import update_videos_sheet, update_trending_sheet
+
+# update_videos_sheet(res)
+
+# update_trending_sheet(res)

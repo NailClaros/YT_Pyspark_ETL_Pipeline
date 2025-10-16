@@ -1,5 +1,8 @@
 ex.py
 test.py
+*.csv
+cred*.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

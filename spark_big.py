@@ -38,19 +38,19 @@ spark = (
 
 # Download dataset
 path = kagglehub.dataset_download("datasnaek/youtube-new")
-
+focus = "US"
 #Test one file
 upload_file(
     bucket=os.getenv("BUCKET_NAME"),
-    filepath=f"{path}\\GBvideos.csv",
-    key="youtube/GBvideos.csv"
+    filepath=f"{path}\\{focus}videos.csv",
+    key=f"youtube/{focus}videos.csv"
 )
 
 print("Files in S3 Bucket after upload:")
-print(f"Fill exists: {file_exists_in_s3(os.getenv('BUCKET_NAME'), f'youtube/GBvideos.csv')}")
+print(f"Fill exists: {file_exists_in_s3(os.getenv('BUCKET_NAME'), f'youtube/{focus}videos.csv')}")
 
 df = spark.read.option("header", "true").csv(
-    f"s3a://{os.getenv('BUCKET_NAME')}/youtube/GBvideos.csv"
+    f"s3a://{os.getenv('BUCKET_NAME')}/youtube/{focus}videos.csv"
 )
 
 df.show(5)
