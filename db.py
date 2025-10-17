@@ -22,7 +22,7 @@ def get_db_connection(env=os.getenv("ENV", "prod")):
         return psycopg2.connect(os.getenv("DB_URL"))
 
 
-def add_video_O(video, conn=None, env="prod", schema="yt_data"):
+def add_video_O(video, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
     """
     Inserts a video into youtube_videos.
     Skips if video_id already exists.
@@ -35,17 +35,19 @@ def add_video_O(video, conn=None, env="prod", schema="yt_data"):
         if conn is None:
             conn = get_db_connection(env)
             close_conn = True
+        if env == "test":
+            schema = os.getenv("POSTGRES_DB")
 
         with conn.cursor() as cur:
             cur.execute(f"""
                 INSERT INTO {schema}.youtube_videos (
-                    video_id, title, channel_title, category_id, publish_time,
+                    video_id, title, channel_title, category_id, publish_date,
                     tags, thumbnail_link, description, comments_disabled,
                     ratings_disabled, video_error_or_removed
                 )
                 VALUES (
                     %(video_id)s, %(title)s, %(channel_title)s, %(category_id)s,
-                    %(publish_time)s, %(tags)s, %(thumbnail_link)s, %(description)s,
+                    %(publish_date)s, %(tags)s, %(thumbnail_link)s, %(description)s,
                     %(comments_disabled)s, %(ratings_disabled)s, %(video_error_or_removed)s
                 )
                 ON CONFLICT (video_id) DO NOTHING;
@@ -66,7 +68,7 @@ def add_video_O(video, conn=None, env="prod", schema="yt_data"):
         if close_conn and conn:
             conn.close()
 
-def add_trending_snapshot_O(snapshot, conn=None, env="prod", schema="yt_data"):
+def add_trending_snapshot_O(snapshot, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
     """
     Adds a daily trending snapshot.
     Skips if an identical record already exists.
@@ -79,15 +81,17 @@ def add_trending_snapshot_O(snapshot, conn=None, env="prod", schema="yt_data"):
         if conn is None:
             conn = get_db_connection(env)
             close_conn = True
+        if env == "test":
+            schema = os.getenv("POSTGRES_DB")
 
         with conn.cursor() as cur:
             cur.execute(f"""
                 INSERT INTO {schema}.youtube_trending_history (
-                    video_id, trending_date, views, likes, dislikes,
+                    video_id, publish_date, views, likes, dislikes,
                     comment_count, region, recorded_at
                 )
                 VALUES (
-                    %(video_id)s, %(trending_date)s, %(views)s, %(likes)s,
+                    %(video_id)s, %(publish_date)s, %(views)s, %(likes)s,
                     %(dislikes)s, %(comment_count)s, %(region)s, %(recorded_at)s
                 )
                 ON CONFLICT DO NOTHING;
@@ -112,7 +116,7 @@ def add_trending_snapshot_O(snapshot, conn=None, env="prod", schema="yt_data"):
 ##Pipeline version with partitioned tables below
 #Use these functions instead of the above for partitioned tables
 
-def add_video_P(videos, conn=None, env="prod", schema="yt_data"):
+def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
     """
     Inserts a video into youtube_videos.
     Skips if video_id already exists.
@@ -126,18 +130,21 @@ def add_video_P(videos, conn=None, env="prod", schema="yt_data"):
             conn = get_db_connection(env)
             close_conn = True
 
+        if env == "test":
+            schema = os.getenv("POSTGRES_DB")
+
         with conn.cursor() as cur:
             for vid in videos:
                 cur.execute(f"""
                     INSERT INTO {schema}.youtube_videos_p (
                         video_id, title, channel_title,
-                        category_id, publish_time, tags, views, likes,
-                        comment_count, thumbnail_link, description, recorded_at
+                        category_id, publish_date, tags, views, likes,
+                        comment_count, thumbnail_link, recorded_at
                     )
                     VALUES (
                         %(video_id)s, %(title)s, %(channel_title)s,
-                        %(category_id)s, %(trending_date)s, %(tags)s, %(views)s, %(likes)s,
-                        %(comment_count)s, %(thumbnail_link)s, %(description)s, %(recorded_at)s
+                        %(category_id)s, %(publish_date)s, %(tags)s, %(views)s, %(likes)s,
+                        %(comment_count)s, %(thumbnail_link)s, %(recorded_at)s
                     )
                     ON CONFLICT (video_id) DO NOTHING;
                 """, vid)
@@ -157,7 +164,7 @@ def add_video_P(videos, conn=None, env="prod", schema="yt_data"):
         if close_conn and conn:
             conn.close()
     
-def add_trending_snapshot_P(snapshot, conn=None, env="prod", schema="yt_data"):
+def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
     """
     Adds a daily trending snapshot.
     Skips if an identical record already exists.
@@ -171,6 +178,9 @@ def add_trending_snapshot_P(snapshot, conn=None, env="prod", schema="yt_data"):
             conn = get_db_connection(env)
             close_conn = True
 
+        if env == "test":
+            schema = os.getenv("POSTGRES_DB")
+
         with conn.cursor() as cur:
             # Make sure snapshot is a list
             if isinstance(snapshot, dict):
@@ -179,11 +189,11 @@ def add_trending_snapshot_P(snapshot, conn=None, env="prod", schema="yt_data"):
             for vid in snapshot:
                 cur.execute(f"""
                     INSERT INTO {schema}.youtube_trending_history_p (
-                        video_id, trending_date, views, likes,
+                        video_id, publish_date, views, likes,
                         comment_count, recorded_at
                     )
                     VALUES (
-                        %(video_id)s, %(trending_date)s, %(views)s, %(likes)s,
+                        %(video_id)s, %(publish_date)s, %(views)s, %(likes)s,
                         %(comment_count)s, %(recorded_at)s
                     )
                     ON CONFLICT (video_id, recorded_at) DO NOTHING;
@@ -205,3 +215,41 @@ def add_trending_snapshot_P(snapshot, conn=None, env="prod", schema="yt_data"):
             conn.close()
 
         
+def wipe_youtube_tables(conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
+    """
+    Deletes all records from youtube_videos_p and youtube_trending_history_p tables.
+    Use with caution — this wipes all data and is meant for TESTING ONLY.
+    
+    Parameters:
+    - conn: optional existing DB connection
+    - env: 'prod' or 'test' (adjusts schema if needed)
+    - schema: DB schema to use
+    """
+    try:
+        close_conn = False
+        if conn is None:
+            conn = get_db_connection(env)
+            close_conn = True
+
+        if env == "test":
+            schema = os.getenv("POSTGRES_DB")
+
+        with conn.cursor() as cur:
+            cur.execute(f"DELETE FROM {schema}.youtube_trending_history_p;")
+            cur.execute(f"DELETE FROM {schema}.youtube_videos_p;")
+
+        conn.commit()
+        print("Wiped youtube_videos_p and youtube_trending_history_p tables.")
+
+        if close_conn:
+            conn.close()
+
+        return 1  # Success
+
+    except Exception as e:
+        print("Error wiping tables:", e)
+        return 0  # Failure
+
+    finally:
+        if close_conn and conn:
+            conn.close()

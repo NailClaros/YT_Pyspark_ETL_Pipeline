@@ -44,13 +44,12 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
                 "title": snippet.get("title"),
                 "channel_title": snippet.get("channelTitle"),
                 "category_id": snippet.get("categoryId"),
-                "trending_date": dt.strftime("%m-%d-%Y"),
+                "publish_date": dt.strftime("%m-%d-%Y"),
                 "tags": snippet.get("tags", []),
                 "views": int(stats.get("viewCount", 0)),
                 "likes": int(stats.get("likeCount", 0)),
                 "comment_count": int(stats.get("commentCount", 0)),
                 "thumbnail_link": thumbnails.get("high", {}).get("url") or thumbnails.get("default", {}).get("url"),
-                "description": snippet.get("description"),
                 "recorded_at": datetime.now().strftime("%m-%d-%Y")
             }
 

@@ -1,11 +1,19 @@
 import gspread
 from google.oauth2.service_account import Credentials
-
+import os
+import json
+from dotenv import load_dotenv
+load_dotenv()
 
 # ==== Google Sheets Setup ====
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-CREDS = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-client = gspread.authorize(CREDS)
+creds_json = os.getenv("GOOGLE_SHEETS_CREDS")
+if not creds_json:
+    raise Exception("Google Sheets credentials not found in environment variable!")
+
+creds_dict = json.loads(creds_json)
+creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+client = gspread.authorize(creds)
 
 SHEET_ID = "19ZWtCdSaRtixWbSVgGPtsWWk-blKX3uSMt5n9sk7Jwc"
 
@@ -90,3 +98,12 @@ def update_trending_sheet(snapshots):
 
     _append_to_sheet(TRENDING_SHEET_NAME, fieldnames, new_rows, needs_header)
     print(f"Added {len(new_rows)} new records to Google Sheet '{TRENDING_SHEET_NAME}'.")
+
+
+def clear_sheet_completely(sheet_name):
+    """
+    Deletes all rows and headers from a Google Sheet worksheet.
+    """
+    sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
+    sheet.clear()
+    print(f"Cleared all content from '{sheet_name}'")
