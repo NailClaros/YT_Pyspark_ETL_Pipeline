@@ -50,7 +50,7 @@ def run_yt_api(yt_key, size=5) -> list[dict]:
                 "likes": int(stats.get("likeCount", 0)),
                 "comment_count": int(stats.get("commentCount", 0)),
                 "thumbnail_link": thumbnails.get("high", {}).get("url") or thumbnails.get("default", {}).get("url"),
-                "recorded_at": datetime.now().strftime("%m-%d-%Y")
+                "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
             }
 
             results.append(record)
