@@ -58,6 +58,20 @@ def get_redis_client(env: str = os.getenv("ENV", "prod")) -> redis.Redis:
         print(f"Redis connection failed: {e}")
         return None
 
+def clear_redis_cache(env: str = os.getenv("ENV", "prod")):
+    """
+    clears all keys in Redis for the specified environment.
+    args:
+    env: str : 'prod' or 'test' to determine which Redis to clear
+    """
+    try:
+        redis_client = get_redis_client(env)  # or "test"
+        for key in redis_client.scan_iter(match=f"{env.lower()}:*"):
+            print(f"Deleting Redis key: {key}" )
+            redis_client.delete(key)
+    except Exception as e:
+        print(f"Error clearing Redis cache: {e}")
+
 def cache_video_ids_idempotent(videos, env=os.getenv('ENV', 'prod'), ttl_hours=24.0):
     """
     Idempotent version of cache_video_ids:
@@ -109,7 +123,7 @@ def cache_video_ids_idempotent(videos, env=os.getenv('ENV', 'prod'), ttl_hours=2
 
     try:
         pipe.execute()
-        print(f"Added {added} new videos, refreshed {refreshed} existing ones.")
+        print(f"Added {added} new cached videos, refreshed {refreshed} existing ones.")
     except redis.exceptions.RedisError as e:
         print(f"Redis pipeline error: {e}")
 
@@ -140,7 +154,7 @@ def _get_existing_keys(sheet_name, key_fields):
     needs_header = False
     return existing, needs_header
 
-def get_existing_keys_cached(sheet_name, key_fields, env=os.getenv("ENV", "prod")):
+def get_existing_keys_cached(key_fields, sheet_name="",  env=os.getenv("ENV", "prod")):
     """
     Get existing keys from Redis first; fallback to Google Sheet if Redis unavailable.
     Returns:

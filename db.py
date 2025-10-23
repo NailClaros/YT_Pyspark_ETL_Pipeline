@@ -150,6 +150,12 @@ def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data
                 """, vid)
 
         conn.commit()
+        
+        if conn.notices:
+                for notice in conn.notices:
+                    message = notice.strip().replace('\n', ' ')
+                    print("DB NOTICE:", message)
+                conn.notices.clear() 
 
         if close_conn:
             conn.close()
@@ -200,6 +206,12 @@ def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
                 """, vid)
 
         conn.commit()
+
+        if conn.notices:
+                for notice in conn.notices:
+                    message = notice.strip().replace('\n', ' ')
+                    print("DB NOTICE:", message)
+                conn.notices.clear() 
 
         if close_conn:
             conn.close()
