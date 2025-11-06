@@ -116,7 +116,7 @@ def add_trending_snapshot_O(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
 ##Pipeline version with partitioned tables below
 #Use these functions instead of the above for partitioned tables
 
-def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
+def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema=None):
     """
     Inserts a video into youtube_videos.
     Skips if video_id already exists.
@@ -132,6 +132,9 @@ def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data
 
         if env == "test":
             schema = os.getenv("POSTGRES_DB")
+        else:
+            if schema is None:
+                schema = "yt_data"
 
         with conn.cursor() as cur:
             for vid in videos:
@@ -170,7 +173,7 @@ def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data
         if close_conn and conn:
             conn.close()
     
-def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
+def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), schema=None):
     """
     Adds a daily trending snapshot.
     Skips if an identical record already exists.
@@ -186,6 +189,9 @@ def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
 
         if env == "test":
             schema = os.getenv("POSTGRES_DB")
+        else:
+            if schema is None:
+                schema = "yt_data"
 
         with conn.cursor() as cur:
             # Make sure snapshot is a list
@@ -227,7 +233,7 @@ def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
             conn.close()
 
         
-def wipe_youtube_tables(conn=None, env=os.getenv("ENV", "prod"), schema="yt_data"):
+def wipe_youtube_tables(conn=None, env=os.getenv("ENV", "prod"), schema=None):
     """
     Deletes all records from youtube_videos_p and youtube_trending_history_p tables.
     Use with caution — this wipes all data and is meant for TESTING ONLY.
@@ -245,6 +251,9 @@ def wipe_youtube_tables(conn=None, env=os.getenv("ENV", "prod"), schema="yt_data
 
         if env == "test":
             schema = os.getenv("POSTGRES_DB")
+        else:
+            if schema is None:
+                schema = "yt_data"
 
         with conn.cursor() as cur:
             cur.execute(f"DELETE FROM {schema}.youtube_trending_history_p;")

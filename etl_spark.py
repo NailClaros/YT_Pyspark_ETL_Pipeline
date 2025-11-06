@@ -1,7 +1,8 @@
 import os
 from datetime import datetime, timedelta
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, when, round
+from awsfuncs import extract_s3_parts, delete_old_week_folders
 from dotenv import load_dotenv
 from urllib.parse import urlparse, urlunparse
 load_dotenv()
@@ -106,8 +107,8 @@ def run_spark_job(env = os.getenv("ENV", "test")):
                 "password": os.getenv("PROD_PW") or db_pw,
                 "driver": "org.postgresql.Driver"
             }
-            trending_table = "yt_data.trending_history"
-            videos_table = "yt_data.youtube_videos"
+            trending_table = "yt_data.youtube_trending_history_P"
+            videos_table = "yt_data.youtube_videos_p"
 
         # --- Determine current week range ---
         today = datetime.now().date()
@@ -131,7 +132,7 @@ def run_spark_job(env = os.getenv("ENV", "test")):
             return
 
         # --- Load categorical data table dynamically ---
-        category_df = load_categorical_data(env, spark, jdbc_url, props)
+        category_df = load_categorical_data(spark=spark, env=env, jdbc_url=jdbc_url, props=props)
 
         category_df = category_df.withColumnRenamed("id", "category_id")
 
@@ -139,10 +140,19 @@ def run_spark_job(env = os.getenv("ENV", "test")):
         # --- Join to get category names ---
         trending_df = trending_df.join(category_df, on="category_id", how="left")
 
+        trending_df = trending_df.withColumn(
+            "engagement_rate",
+            when(col("views") > 0, round((col("likes") + col("comment_count")) / col("views") * 100, 2))
+            .otherwise(0)  # If views = 0, engagement is 0%
+        )
 
         # --- Write weekly Parquet ---
         week_str = monday.strftime("%Y_%m_%d")
         output_dir = f"{output_path}/week_{week_str}"
+
+        bucket, prefix = extract_s3_parts(output_path)
+        delete_old_week_folders(bucket, prefix, week_str)
+
         columns_to_keep = trending_df.columns  
         columns_to_keep.remove("category_id") 
         trending_df.select(columns_to_keep).write.mode("overwrite").parquet(output_dir)
@@ -158,4 +168,32 @@ def run_spark_job(env = os.getenv("ENV", "test")):
         return {"status": "failure"}
         
 
-# run_spark_job()
+run_spark_job()
+
+def read_s3_parquet(output_path=get_output_path(), env=os.getenv("ENV", "test")):
+    """
+    Reads Parquet data directly from an S3 bucket using Spark.
+    Works with both 'prod' (S3) and 'test' (local) environments.
+    """
+    print(f"\n\033[34mReading Parquet from S3 path: {output_path}\033[0m\n")
+
+    spark = get_spark_connection(env)
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    week_str = monday.strftime("%Y_%m_%d")
+    output_dir = f"{output_path}/week_{week_str}"
+    # Read Parquet directly from S3
+    df = spark.read.parquet(output_dir)
+
+    # Display some rows and schema
+    df.show(20, truncate=False)
+    df.printSchema()
+
+    num_rows = df.count()
+    print(f"The number of rows in the DataFrame is: {num_rows}")
+
+
+    spark.stop()
+    return df
+
+# read_s3_parquet()

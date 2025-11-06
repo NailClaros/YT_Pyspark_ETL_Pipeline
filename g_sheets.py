@@ -158,7 +158,7 @@ def get_existing_keys_cached(key_fields, sheet_name="",  env=os.getenv("ENV", "p
     """
     Get existing keys from Redis first; fallback to Google Sheet if Redis unavailable.
     Returns:
-      existing (set)        -> set of strings for single-key case, set of tuples for multi-key
+      existing (set) -> set of strings for single-key case, set of tuples for multi-key
       needs_header (bool)
     """
     redis_client = get_redis_client(env)

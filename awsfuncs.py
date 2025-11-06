@@ -81,3 +81,54 @@ def upload_file(bucket, filepath, key, s3_client=None):
         print(f"Upload failed: {e}")
     except Exception as e:
         print(f"Unexpected error: {e}")
+
+def extract_s3_parts(s3_path:str):
+    """Splits an s3a:// path into bucket and prefix."""
+    if not s3_path.startswith("s3a://"):
+        raise ValueError("Invalid S3 path. Must start with s3a://")
+    
+    parts = s3_path.replace("s3a://", "").split("/", 1)
+    bucket = parts[0]
+    prefix = parts[1] if len(parts) > 1 else ""
+    return bucket, prefix
+
+def delete_old_week_folders(bucket, prefix, current_week, s3=None):
+    """
+    Deletes old 'week_YYYY_MM_DD' folders in S3, keeping only the current week's folder.
+    Uses list_files() internally.
+    """
+    try:
+
+        if s3 is None:
+            s3 = get_s3_client()
+
+        files = list_files(bucket, s3)
+        import re
+        week_pattern = re.compile(r"week_(\d{4}_\d{2}_\d{2})")
+
+        # Identify week folders
+        weeks_found = set()
+        for key in files:
+            match = week_pattern.search(key)
+            if match:
+                weeks_found.add(match.group(1))
+
+        for week in weeks_found:
+            if week != current_week:
+                old_prefix = f"{prefix}/week_{week}"
+                print(f"--Deleting old week folder: {old_prefix}")
+                objs_to_delete = [
+                    {"Key": key} for key in files if key.startswith(old_prefix)
+                ]
+                if objs_to_delete:
+                    s3.delete_objects(
+                        Bucket=bucket,
+                        Delete={"Objects": objs_to_delete}
+                    )
+
+        return {"status": "completed"}
+    
+    except Exception as e:
+        print(f"Error deleting old week folders: {e}")
+        return {"status": "error"}
+    
