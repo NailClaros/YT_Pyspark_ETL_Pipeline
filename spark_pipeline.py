@@ -8,7 +8,6 @@ import os
 load_dotenv()
 
 def run_pipeline(api_key=os.getenv("YT_API_KEY")):
-    
     try:
         # # Testind code to wipe tables and sheets and verify functionality
         # wipe_youtube_tables()
@@ -19,7 +18,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
         # sleep(5)  # Just to ensure tables are wiped before proceeding
 
         
-        print("\033[1;32m===========\nSpark YT Pipeline running...\n===========\033[0m\n\n")
+        print(f"\033[1;32m===========\nSpark YT Pipeline running... [mode:{os.getenv("ENV", "test")}]\n===========\033[0m\n\n")
 
         #-- Fetch data from YouTube API
         print("\033[4m" + "--Running YT API function..." + "\033[0m\n\n")
@@ -43,7 +42,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
             print("\033[33m******\033[0m\n\n")
 
             print("\033[4m" + "--Running Database functions.." + "\033[0m")
-            db_result_snapshots = add_trending_snapshot_P(videos, env="prod")
+            db_result_snapshots = add_trending_snapshot_P(videos)
             if db_result_snapshots:
                 print(f"\033[34mAttempted to Inserted {len(videos)} trending snapshots into the database.\033[0m\n\n")
             else:
@@ -56,7 +55,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
 
             ##-- Update Redis cache
             print("\n=== Updating Redis cache ===\n")
-            cache_video_ids_idempotent(videos, env="test", ttl_hours=24)
+            cache_video_ids_idempotent(videos, ttl_hours=24)
 
             print("\n\n\033[1;32mPipeline completed successfully!\033[0m\n")
 
@@ -69,7 +68,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
 
 
         #-- Insert videos into the database
-        db_result_videos = add_video_P(new_videos, env="prod")
+        db_result_videos = add_video_P(new_videos)
         if db_result_videos:
             print(f"\033[34m{len(new_videos)} were found from a sucessful API call, \n..attempting to send to videos table...\033[0m\n")
         else:
@@ -77,7 +76,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
             raise Exception("DB insertion failed for video Table. Aborting pipeline.")
 
         #-- Insert trending snapshots into the database
-        db_result_snapshots = add_trending_snapshot_P(videos, env="prod")
+        db_result_snapshots = add_trending_snapshot_P(videos)
         if db_result_snapshots:
             print(f"\033[34mAttempted to Inserted {len(videos)} trending snapshots into the database.\033[0m\n\n")
         else:
@@ -93,7 +92,7 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
 
         ##-- Update Redis cache
         print("\n=== Updating Redis cache ===\n")
-        # cache_video_ids_idempotent(videos, ttl_hours=0.009)
+        # cache videos
         cache_video_ids_idempotent(new_videos, ttl_hours=24)
 
         print("\n\n\033[1;32mPipeline completed successfully!\033[0m\n")
