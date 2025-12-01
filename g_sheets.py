@@ -16,7 +16,7 @@ creds_dict = json.loads(creds_json)
 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 client = gspread.authorize(creds)
 
-SHEET_ID = "19ZWtCdSaRtixWbSVgGPtsWWk-blKX3uSMt5n9sk7Jwc"
+SHEET_ID = os.getenv("SHEET_ID")
 
 # Two tabs/sheets inside the same spreadsheet
 VIDEOS_SHEET_NAME = "vids"
@@ -154,15 +154,20 @@ def _get_existing_keys(sheet_name, key_fields):
     needs_header = False
     return existing, needs_header
 
-def get_existing_keys_cached(key_fields, sheet_name="",  env=os.getenv("ENV", "prod")):
+def get_existing_keys_cached(key_fields, sheet_name="",  env=os.getenv("ENV", "prod"), redis_client=None, prefix=""):
     """
     Get existing keys from Redis first; fallback to Google Sheet if Redis unavailable.
     Returns:
       existing (set) -> set of strings for single-key case, set of tuples for multi-key
       needs_header (bool)
     """
-    redis_client = get_redis_client(env)
-    prefix = f"{env.lower()}:"
+    if not redis_client and not prefix:
+        redis_client = get_redis_client(env)
+        prefix = f"{env.lower()}:"
+    else:
+        redis_client = redis_client
+        prefix = prefix
+    
 
     if redis_client:
         try:
@@ -227,6 +232,7 @@ def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
     if cleaned_rows:
         sheet.append_rows(cleaned_rows, value_input_option="USER_ENTERED")
         print(f"Added {len(cleaned_rows)} rows to Google Sheet '{sheet_name}'.")
+        return len(cleaned_rows)
 
 
 # def update_videos_sheet(videos):
@@ -246,22 +252,31 @@ def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
 #     _append_to_sheet(VIDEOS_SHEET_NAME, fieldnames, new_videos, needs_header)
 #     print(f"Added {len(new_videos)} new videos to Google Sheet '{VIDEOS_SHEET_NAME}'.")
 
-def update_videos_sheet(videos, env=os.getenv("ENV", "prod")):
+def update_videos_sheet(videos, env=os.getenv("ENV", "prod"), sheet_name="", redis_client=None, prefix=""):
     """Appends unique videos to Google Sheet (youtube_videos), using Redis if available."""
     if not videos:
         print("No videos to add.")
-        return
+        return 0
 
     fieldnames = list(videos[0].keys())
-    existing_ids, needs_header = get_existing_keys_cached(VIDEOS_SHEET_NAME, ["video_id"], env=env)
+    if redis_client is None and not prefix and not sheet_name:
+        existing_ids, needs_header = get_existing_keys_cached("vids" if not sheet_name else "tester_vids", ["video_id"], env=env)
+    else:
+        existing_ids, needs_header = get_existing_keys_cached(
+            key_fields=["video_id"],
+            sheet_name=sheet_name if sheet_name else "vids",
+            redis_client=redis_client,
+            prefix=prefix
+        )
 
     new_videos = [v for v in videos if (v["video_id"],) not in existing_ids]
     if not new_videos:
         print("No new unique videos to add.")
-        return
+        return 0
 
-    _append_to_sheet(VIDEOS_SHEET_NAME, fieldnames, new_videos, needs_header)
-    print(f"Added {len(new_videos)} new videos to Google Sheet '{VIDEOS_SHEET_NAME}'.")
+    _append_to_sheet(sheet_name if sheet_name else "vids", fieldnames, new_videos, needs_header)
+    print(f"Added {len(new_videos)} new videos to Google Sheet '{sheet_name if sheet_name else "vids"}'.")
+    return len(new_videos)
 
 # def update_trending_sheet(snapshots):
 #     """Appends unique trending snapshots to Google Sheet (youtube_trending_history)."""
@@ -286,7 +301,7 @@ def update_videos_sheet(videos, env=os.getenv("ENV", "prod")):
 #     print(f"Added {len(new_rows)} new records to Google Sheet '{TRENDING_SHEET_NAME}'.")
 
 
-def update_trending_sheet(snapshots):
+def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
     """
     Appends all trending snapshot records directly to the Google Sheet (youtube_trending_history).
     - Skips Redis and Sheet deduplication checks since data is ephemeral.
@@ -297,10 +312,13 @@ def update_trending_sheet(snapshots):
     """
     if not snapshots:
         print("No snapshots to add.")
-        return
+        return 0
 
     fieldnames = ["video_id", "publish_date", "views", "likes", "comment_count", "recorded_at"]
-    sheet = client.open_by_key(SHEET_ID).worksheet(TRENDING_SHEET_NAME)
+    if xclient is None and sheet_name == "":
+        sheet = client.open_by_key(os.getenv("SHEET_ID")).worksheet("snapshots")
+    else:
+        sheet = xclient.open_by_key(os.getenv("SHEET_ID")).worksheet(sheet_name)
 
     try:
         # Efficiently check only the first row
@@ -323,12 +341,13 @@ def update_trending_sheet(snapshots):
     # Batch append
     if cleaned_rows:
         sheet.append_rows(cleaned_rows, value_input_option="USER_ENTERED")
-        print(f"Added {len(cleaned_rows)} trending snapshot records to '{TRENDING_SHEET_NAME}'.")
+        print(f"Added {len(cleaned_rows)} trending snapshot records to '{sheet_name if sheet_name else "Snapshots"}'.")
+        return len(cleaned_rows)
     else:
         print("No valid snapshot data to append.")
 
 
-def clear_sheet_completely(sheet_name):
+def clear_sheet_completely(client, sheet_name):
     """
     Deletes all rows and headers from a Google Sheet worksheet.
     """

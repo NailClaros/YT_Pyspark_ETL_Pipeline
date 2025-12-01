@@ -4,7 +4,7 @@ from datetime import datetime
 load_dotenv()
 import os
 
-def run_yt_api(yt_key, size=5) -> list[dict]:
+def run_yt_api(yt_key="", size=5) -> list[dict]:
     """
         Fetches the most popular videos from YouTube API.
         size: Number of videos to fetch (max 50 and defaults to 5).

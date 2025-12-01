@@ -175,25 +175,29 @@ def read_s3_parquet(output_path=get_output_path(), env=os.getenv("ENV", "test"))
     Reads Parquet data directly from an S3 bucket using Spark.
     Works with both 'prod' (S3) and 'test' (local) environments.
     """
-    print(f"\n\033[34mReading Parquet from S3 path: {output_path}\033[0m\n")
+    try:
+        print(f"\n\033[34mReading Parquet from S3 path: {output_path}\033[0m\n")
 
-    spark = get_spark_connection(env)
-    today = datetime.now().date()
-    monday = today - timedelta(days=today.weekday())
-    week_str = monday.strftime("%Y_%m_%d")
-    output_dir = f"{output_path}/week_{week_str}"
-    # Read Parquet directly from S3
-    df = spark.read.parquet(output_dir)
+        spark = get_spark_connection(env)
+        today = datetime.now().date()
+        monday = today - timedelta(days=today.weekday())
+        week_str = monday.strftime("%Y_%m_%d")
+        output_dir = f"{output_path}/week_{week_str}"
+        # Read Parquet directly from S3
+        df = spark.read.parquet(output_dir)
 
-    # Display some rows and schema
-    df.show(20, truncate=False)
-    df.printSchema()
+        # Display some rows and schema
+        df.show(20, truncate=False)
+        df.printSchema()
 
-    num_rows = df.count()
-    print(f"The number of rows in the DataFrame is: {num_rows}")
+        num_rows = df.count()
+        print(f"The number of rows in the DataFrame is: {num_rows}")
 
 
-    spark.stop()
-    return df
+        spark.stop()
+        return df
+    except Exception as e:
+        print(f"\033[1;31mERROR: Failed to read Parquet from S3: {e}\033[0m")
+        return {"status": "failure"}
 
 # read_s3_parquet()
