@@ -149,12 +149,18 @@ def run_spark_job(env = os.getenv("ENV", "test")):
         # --- Write weekly Parquet ---
         week_str = monday.strftime("%Y_%m_%d")
         output_dir = f"{output_path}/week_{week_str}"
+        print(f"\n\033[34mWriting Parquet to S3 path: {output_dir} for week {week_str}\033[0m\n")
 
         bucket, prefix = extract_s3_parts(output_path)
-        delete_old_week_folders(bucket, prefix, week_str)
 
+        print(f"\033[34mBucket: {bucket}, Prefix: {prefix}\033[0m\n")
+        print(f"\n\033[34mCleaning up old week folders in s3://{bucket}/{prefix} \n..excluding week_{week_str}...\033[0m\n")
+        x = delete_old_week_folders(bucket=bucket, prefix=prefix, current_week=week_str)
+
+        print(f"\n\033[34mOld week folders cleanup result: {x}\033[0m\n")
         columns_to_keep = trending_df.columns  
         columns_to_keep.remove("category_id") 
+
         trending_df.select(columns_to_keep).write.mode("overwrite").parquet(output_dir)
 
         print(f"\n\033[1;32mSuccessfully wrote Parquet to: {output_dir}\033[0m\n")

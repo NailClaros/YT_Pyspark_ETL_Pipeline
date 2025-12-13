@@ -9,11 +9,10 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-from streamlit_plotly_events import plotly_events
 import os
 load_dotenv()
 
-st.set_page_config(layout="wide", page_title="YouTube Trending Dashboard", page_icon="📊")
+st.set_page_config(layout="wide", page_title="YouTube Trending Dashboard - Nail Claros", page_icon="📊")
 
 if "selected_video" not in st.session_state:
         st.session_state.selected_video = None
@@ -195,7 +194,6 @@ try:
 
     last_10_df = trending_df.sort_values("recorded_at", ascending=False).drop_duplicates("video_id").head(10)
 
-    st.success("✅ Data loaded successfully")
     col1, col2 = st.columns([.5,.5], gap="large")
 
 
@@ -283,7 +281,7 @@ try:
 
         # Find the maximum number of trending days
         max_trending_h = trending_counts.max()
-
+        
         # Filter videos that have the maximum trending days
         top_videos = trending_counts[trending_counts == max_trending_h]
 
@@ -293,8 +291,10 @@ try:
             top_videos_list = list(top_videos.items())
 
             # Display first 3 videos directly
-            for video_id, days in top_videos_list[:3]:
-                video_info = merged_df[merged_df["video_id"] == video_id].iloc[0]
+
+            for video_id, days in(top_videos_list if len(top_videos_list) <= 3 else top_videos_list[:3]):
+                video_info = long_data[long_data["video_id"] == str(video_id)].iloc[0]
+                
                 title = video_info["title"]
                 channel = video_info["channel_title"]
                 category = video_info.get("category_name", "Unknown")
@@ -310,25 +310,29 @@ try:
                     border-radius:6px;
                     background-color: rgba(255,255,255,0.05);
                 ">
-                    <a href="{youtube_link}" target="_blank">
-                        <img src="{thumbnail}" width="60" style="border-radius:4px; margin-right:6px;">
-                    </a>
-                    <div style="flex:1; line-height:1.2;">
-                        <a href="{youtube_link}" target="_blank" style="text-decoration:none; color:white; font-weight:bold; font-size:12px;">
-                            {title}
-                        </a><br>
-                        <small style="color:#cccccc; font-size:10px;">{channel}</small><br>
-                        <span style="color:#888; font-size:10px;">Category: {category} | {days} hours trending</span>
-                    </div>
-                </div>
+                            <a href="{youtube_link}" target="_blank">
+                                <img src="{thumbnail}" width="60" style="border-radius:4px; margin-right:6px;">
+                            </a>
+                            <div style="flex:1; line-height:1.2;">
+                                <a href="{youtube_link}" target="_blank" style="text-decoration:none; color:white; font-weight:bold; font-size:12px;">
+                                    {title}
+                                </a><br>
+                                <small style="color:#cccccc; font-size:10px;">{channel}</small><br>
+                                <span style="color:#88; font-size:10px;">
+                                    Category: {category} | 
+                                    <span style="font-weight:bold; color:#f2f2f2;">🔥 Trended for {days} {"Hour" if days < 1 else "Hours"} </span>
+                                </span>
+                            </div>
+                        </div>
                 """, unsafe_allow_html=True)
         
             # If more than 3 videos, put the rest in an expander
-            over_3 = len(top_videos_list) - 3
+
             if len(top_videos_list) > 3:
+                over_3 = len(top_videos_list) - 3
                 with st.expander(f"Show {over_3} more {'video' if over_3 == 1 else 'videos'}"):
                     for video_id, days in top_videos_list[3:]:
-                        video_info = merged_df[merged_df["video_id"] == video_id].iloc[0]
+                        video_info = long_data[long_data["video_id"] == str(video_id)].iloc[0]
                         title = video_info["title"]
                         channel = video_info["channel_title"]
                         category = video_info.get("category_name", "Unknown")
@@ -352,7 +356,10 @@ try:
                                     {title}
                                 </a><br>
                                 <small style="color:#cccccc; font-size:10px;">{channel}</small><br>
-                                <span style="color:#888; font-size:10px;">Category: {category} | {days} hours trending</span>
+                                <span style="color:#88; font-size:10px;">
+                                    Category: {category} | 
+                                    <span style="font-weight:bold; color:#f2f2f2;">🔥 Trended for {days} {"Hour" if days < 1 else "Hours"}</span>
+                                </span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -381,8 +388,10 @@ try:
         )
 
         cat_counts["rank"] = cat_counts["count"].rank(
-            method="dense", ascending=False
+            method="dense", ascending=False, 
         ).astype(int)    
+
+        cat_counts = cat_counts.sort_values(["rank", "category"])
       
         for _, row in cat_counts.iterrows():
             rank = int(row["rank"])
@@ -402,7 +411,8 @@ try:
         ## Current Top Video Lifespan Charts based on views or engagement
         st.subheader("🏆 Current Top Video lifespan over all metrics")
         st.markdown(f"<span style='margin-bottom:2;'>**Video: {merged_df.iloc[0]['title']}**</span>", unsafe_allow_html=True)
-        st.markdown(f"🔥This video has been trending for {long_data[long_data['video_id'] == merged_df.iloc[0]['video_id']]['recorded_at'].nunique()} hours.")
+        hours = long_data[long_data['video_id'] == merged_df.iloc[0]['video_id']]['recorded_at'].nunique()
+        st.markdown(f"🔥This video has been trending for {hours} {"hours" if hours > 1 else "hour"}.")
         num_1_history = long_data[long_data["video_id"] == merged_df.iloc[0]["video_id"]]
         import plotly.graph_objects as go
 
@@ -459,8 +469,6 @@ try:
             margin=dict(l=0, r=0, t=0, b=0)
         )
 
-        
-
         # --- Chart 2: Comment Count vs Engagement Rate ---
         fig2 = go.Figure()
 
@@ -514,15 +522,15 @@ try:
             height=250,
             margin=dict(l=50, r=50, t=0, b=30)
         )
-        st.plotly_chart(fig1, use_container_width=True)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig1, width="stretch")
+        st.plotly_chart(fig2, width="stretch")
 
         ## Top Channels Section
         st.subheader("🎥 Top Channels in Trending This Week")
         top_channels_df = get_top_channels_from_db(min_videos=1)
 
         if top_channels_df.empty:
-            st.write("No channels with more than 2 trending videos this week...")
+            st.info("No channels with more than 2 trending videos this week...")
         else:
             for _, row in top_channels_df.iterrows():
                 color = get_rank_color(_+1)
@@ -539,7 +547,17 @@ try:
                 )   
 
 
+        ## Top Tags Section
+        st.subheader(f"🏷️ Tags of the #1 video based on {sort_display}")
+        st.markdown(f"**Video: {merged_df.iloc[0]['title']}**")
+        top = merged_df.iloc[0]["tags"]
+        if not top or top == "{}":
+            st.info("No tags for this video.")
+        else:
+            tags_list = parse_tags(top)
+            st.markdown(", ".join(tags_list))
 
+        
         # Frequent Tags Section (aggregated from top 10)
         st.subheader("🏷️ Most Frequent Tags (within Top 10 Trending)")
         st.markdown("Tags used by multiple videos in the top 10 trending this week:")
@@ -562,23 +580,11 @@ try:
                     )
 
 
-
-
-        st.subheader(f"🏷️ Tags of the #1 video based on {sort_display}")
-        st.markdown(f"**Video: {merged_df.iloc[0]['title']}**")
-        top = merged_df.iloc[0]["tags"]
-        if not top or top == "{}":
-            st.info("No tags for this video.")
-        else:
-            tags_list = parse_tags(top)
-            st.markdown(", ".join(tags_list))
-
+        
     
     # --- Layout Row 2: Engagement Timeline ---
     st.subheader(f"📊 Engagement Over Time for {unique_videos} videos this week")
     
-    
-
     metric_to_plot = st.selectbox(
         "Select metric to plot:",
         list(metric_map.keys()),
@@ -681,6 +687,100 @@ try:
                 st.session_state.selected_video = None
                 st.rerun()
 
+
+    st.markdown("""
+        <div style='text-align:center; font-size:1.4rem; font-weight:600; padding-bottom:4px;'>
+            📊 Average Metrics by Category This Week
+        </div>
+        <br>
+        <hr style='border:1px solid white; width:100%; margin:auto; margin-top:-6px; margin-bottom:15px;'/>
+    """, unsafe_allow_html=True)
+
+
+    video_hours = (
+        long_data.groupby("video_id")
+        .size()  # count rows = hours trending
+        .reset_index(name="hours_trending")
+    )
+    
+    merged = long_data.merge(video_hours, on="video_id", how="left")
+    
+    category_stats = (
+    merged.groupby("category_name")
+        .agg({
+            "engagement_rate": "mean",
+            "views": "mean",
+            "likes": "mean",
+            "comment_count": "mean",
+            "hours_trending": "mean",
+        })
+        .reset_index()
+    )
+
+    pretty_names = {
+        "engagement_rate": "Engagement Rate (%)",
+        "views": "Average Views",
+        "likes": "Average Likes",
+        "comment_count": "Average Comments",
+        "hours_trending": "Avg Hours Trending (Per Video)"
+    }
+
+    metrics = [
+        "engagement_rate",
+        "views",
+        "likes",
+        "comment_count",
+        "hours_trending"
+    ]
+
+    all_categories = category_stats["category_name"].unique()
+
+    color_palette = px.colors.qualitative.Set3  
+
+    master_colors = {cat: color_palette[i % len(color_palette)] for i, cat in enumerate(sorted(all_categories))}
+
+    # Layout — 1×5 row
+    cols = st.columns(5, gap="small")
+
+    for col, metric in zip(cols, metrics):
+        sorted_df = category_stats.sort_values(metric, ascending=False)
+        category_order = sorted_df["category_name"].tolist()
+
+        fig = px.bar(
+            sorted_df,
+            x="category_name",
+            y=metric,
+            title=pretty_names[metric],
+            category_orders={"category_name": category_order},  # <<< KEY LINE
+            
+        )
+        fig.update_traces(marker_color=[master_colors[c] for c in sorted_df["category_name"]])
+        fig.update_layout(
+            showlegend=False,
+            margin=dict(l=20, r=20, t=40, b=20),
+            xaxis_title=None,
+            yaxis_title=None,
+        )
+        fig.update_traces(hovertemplate=f"%{{y:,.2f}} {pretty_names[metric]} <br>Category: %{{x}}<extra></extra>")
+
+        col.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+    html_legend = "<div style='display:flex; flex-wrap:wrap; justify-content:center; align-items:center; margin-top:10px;'>"
+
+    for cat, color in master_colors.items():
+        html_legend += f""" 
+            <span style='display:inline-block; margin:0 8px; text-align:center;'>
+                <div style='width:16px; height:16px; background-color:{color}; display:inline-block; border-radius:4px;'></div>
+                <div style='font-size:12px; color:white; margin-top:2px;'>{cat}</div>
+            </span>
+        """
+        html_legend += "&nbsp;&nbsp;" 
+        
+
+    html_legend += "</div>"
+
+    st.markdown(html_legend, unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"Failed to load data: {e}")

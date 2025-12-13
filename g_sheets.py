@@ -22,7 +22,7 @@ SHEET_ID = os.getenv("SHEET_ID")
 VIDEOS_SHEET_NAME = "vids"
 TRENDING_SHEET_NAME = "snapshots"
 
-def get_redis_client(env: str = os.getenv("ENV", "prod")) -> redis.Redis:
+def get_redis_client(env: str = os.getenv("ENV", "test")) -> redis.Redis:
     """
     Establishes and returns a Redis client based on the environment.
     - For 'test', local Redis on localhost or whatever you have set up
@@ -72,136 +72,163 @@ def clear_redis_cache(env: str = os.getenv("ENV", "prod")):
     except Exception as e:
         print(f"Error clearing Redis cache: {e}")
 
-def cache_video_ids_idempotent(videos, env=os.getenv('ENV', 'prod'), ttl_hours=24.0):
+def cache_video_ids_idempotent(
+    videos:list,
+    env:str = os.getenv("ENV", "prod"),
+    prefix:str = "",
+    ttl_hours:float = 24.0,
+    redis_client= None
+):
     """
-    Idempotent version of cache_video_ids:
-    - Only inserts new video IDs if not already cached.
-    - Refreshes TTL for existing keys (sliding expiration).
-    - Avoids redundant writes for unchanged data.
-
-    Args:
-        videos (list[dict]): List of video records containing 'video_id' keys.
-        env (str): Environment identifier ('prod' or 'test').
-        ttl_hours (float): TTL duration in hours.
+    Caches video IDs in Redis with idempotency.
+    args:
+        videos: list[dict] : List of video dicts containing at least 'video_id'
+        env: str : Environment name for namespacing keys
+        prefix: str : Optional prefix for Redis keys
+        ttl_hours: float : Time-to-live for each key in hours
+        redis_client: redis.Redis : Optional Redis client. If None, a new client will be
+            created based on the environment.
+    returns:
+        dict : Summary of added, refreshed, skipped counts
     """
-    redis_client = get_redis_client(env)
-    if not redis_client:
-        print("Redis not available — skipping caching.")
-        return
-    if not videos:
-        print("No videos provided for caching.")
-        return
-    if ttl_hours <= 0:
-        print("TTL hours must be positive.")
-        return
-
-    prefix = f"{env.lower()}:"
-    ttl_seconds = int(ttl_hours * 3600)
-    from datetime import datetime
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    pipe = redis_client.pipeline(transaction=True)
-    added, refreshed = 0, 0
-
-    for video in videos:
-        vid = video.get("video_id")
-        if not vid:
-            continue
-
-        key = f"{prefix}{vid}"
-
-        if redis_client.exists(key):  
-            pipe.expire(key, ttl_seconds)  # reset TTL
-            refreshed += 1
-        else:
-            pipe.hset(key, "video_id", vid)
-            pipe.hset(key, "cached_at", now)
-            pipe.hset(key, "env", env)
-            pipe.hset(key, "title", video.get("title", ""))
-            pipe.expire(key, ttl_seconds)
-            added += 1
-
     try:
+        redis_client = redis_client or get_redis_client(env)
+        if not redis_client or not videos:
+            return {"added": 0, "refreshed": 0, "skipped": 0}
+
+        prefix = f"{prefix}:" if prefix else f"{env}:"
+        ttl_seconds = int(ttl_hours * 3600)
+
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        # Load existing IDs
+        existing_ids = set()
+        for k in redis_client.scan_iter(f"{prefix}*"):
+            if isinstance(k, bytes):
+                k = k.decode()
+            existing_ids.add(k.replace(prefix, ""))
+
+        pipe = redis_client.pipeline()
+        added = refreshed = skipped = 0
+
+        for video in videos:
+            vid = video.get("video_id")
+            if not vid:
+                skipped += 1
+                continue
+
+            key = f"{prefix}{vid}"
+
+            if vid in existing_ids:
+                pipe.expire(key, ttl_seconds)
+                refreshed += 1
+            else:
+                pipe.hset(key, "video_id", vid)
+                pipe.hset(key, "cached_at", now)
+                pipe.hset(key, "env", env)
+                pipe.hset(key, "title", video.get("title", ""))
+                pipe.hset(key, "channel_id", video.get("channel_id", ""))
+                pipe.hset(key, "published_at", video.get("published_at", ""))
+                pipe.hset(key, "duration", video.get("duration", ""))
+                pipe.hset(key, "thumbnail", video.get("thumbnail", ""))
+                pipe.hset(key, "in_sheet", "no")  # Mark as not yet written to sheet
+                pipe.expire(key, ttl_seconds)
+                added += 1
+
         pipe.execute()
-        print(f"Added {added} new cached videos, refreshed {refreshed} existing ones.")
-    except redis.exceptions.RedisError as e:
-        print(f"Redis pipeline error: {e}")
 
-def get_cached_video_ids(env="prod"):
-    """
-    Fetch all cached video IDs from Redis for a given environment.
-    Returns a set of video IDs.
-    """
-    redis_client = get_redis_client(env)
-    if not redis_client:
-        print("Redis not available — returning empty set")
-        return set()
+        print(f"Redis summary → added: {added}, refreshed: {refreshed}, skipped: {skipped}")
 
-    prefix = f"{env.lower()}:"
-    keys = redis_client.keys(f"{prefix}*")
-    video_ids = {k.split(":", 1)[1] for k in keys}  # strip prefix
-    return video_ids
+        return {
+            "added": added,
+            "refreshed": refreshed,
+            "skipped": skipped,
+            "error": None
+        }
+    except Exception as e:
+        print(f"Error caching video IDs in Redis: {e}")
+        return {
+            "added": 0,
+            "refreshed": 0,
+            "skipped": 0,
+            "error": str(e)
+        }
 
 
+## Google sheets functions
 def _get_existing_keys(sheet_name, key_fields):
-    """Collect existing keys from Google Sheet."""
+    """Collect existing keys from Google Sheet.
+    args:
+        sheet_name: str : Name of the sheet/tab
+        key_fields: list[str] : List of field names that make up the key    
+    returns:
+        existing_ids (list[]) : Set of tuples representing existing keys
+        needs_header (bool) : Whether the sheet is empty and needs a header
+    """
     sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
     records = sheet.get_all_records()  # list of dicts
     if not records:
-        return set(), True
+        return [], True
 
-    existing = {tuple(str(row[k]) for k in key_fields) for row in records if all(k in row for k in key_fields)}
+    existing = [(str(row[k]) for k in key_fields) for row in records if all(k in row for k in key_fields)]
     needs_header = False
     return existing, needs_header
 
-def get_existing_keys_cached(key_fields, sheet_name="",  env=os.getenv("ENV", "prod"), redis_client=None, prefix=""):
+## Redis_function
+def get_existing_keys_cached(
+    key_fields,
+    sheet_name="",
+    env=os.getenv("ENV", "test"),
+    redis_client=None,
+    prefix=""
+):
     """
-    Get existing keys from Redis first; fallback to Google Sheet if Redis unavailable.
+    Pull existing keys from Redis.
     Returns:
-      existing (set) -> set of strings for single-key case, set of tuples for multi-key
-      needs_header (bool)
+        existing_ids (set[str])
+        needs_header (bool)
     """
-    if not redis_client and not prefix:
-        redis_client = get_redis_client(env)
-        prefix = f"{env.lower()}:"
-    else:
-        redis_client = redis_client
-        prefix = prefix
-    
+
+    redis_client = redis_client or get_redis_client(env)
+    prefix = f"{prefix}:" if prefix else f"{env}:"
 
     if redis_client:
+        print("Fetching existing keys from Redis...")
         try:
-            keys = redis_client.keys(f"{prefix}*") or []
-            # keys should be strings if decode_responses=True in get_redis_client
-            # strip prefix
-            stripped = [k.split(":", 1)[1] for k in keys if ":" in k]
+            existing_ids = set()
 
-            # Single-key (video_id) -> return set of strings for easy comparison
-            if len(key_fields) == 1 and key_fields[0] == "video_id":
-                existing = set(stripped)
-                needs_header = False
-                return existing, needs_header
+            for k in redis_client.scan_iter(f"{prefix}*"):
+                if isinstance(k, bytes):
+                    k = k.decode()
 
-            # Multi-key fallback: we don't store multi-key combos in Redis by default
-            # so return an empty set, forcing callers to use the sheet fallback below
-            existing = set()
-            needs_header = False
-            return existing, needs_header
+                video_id = k.split(":", 1)[1]
+                existing_ids.add(video_id)
+
+            print(f"Found {len(existing_ids)} cached IDs in Redis.")
+            return existing_ids, False
 
         except Exception as e:
-            print(f"Redis unavailable for existing keys check ({e}) — falling back to Sheet.")
+            print(f"Redis unavailable ({e}) — falling back to Sheet.")
 
-    # Fallback to Google Sheet (only if Redis not available or on multi-key)
+    # Fallback
     if not sheet_name:
-        # no sheet provided and no redis — safe fallback
         return set(), True
 
     return _get_existing_keys(sheet_name, key_fields)
+
 
 def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
     """
     Append rows to a Google Sheet.
     Efficiently checks only the first row to determine if a header is needed.
+    args:
+        sheet_name: str : Name of the sheet/tab
+        fieldnames: list[str] : List of field names (columns)
+        rows: list[dict] : List of row dicts to append
+        needs_header: bool : Whether to add header row
+    returns:
+        int : Number of rows added
     """
     sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
 
@@ -235,70 +262,60 @@ def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
         return len(cleaned_rows)
 
 
-# def update_videos_sheet(videos):
-#     """Appends unique videos to Google Sheet (youtube_videos)."""
-#     if not videos:
-#         print("No videos to add.")
-#         return
 
-#     fieldnames = list(videos[0].keys())
-#     existing_ids, needs_header = _get_existing_keys(VIDEOS_SHEET_NAME, ["video_id"])
 
-#     new_videos = [v for v in videos if (v["video_id"],) not in existing_ids]
-#     if not new_videos:
-#         print("No new unique videos to add.")
-#         return
-
-#     _append_to_sheet(VIDEOS_SHEET_NAME, fieldnames, new_videos, needs_header)
-#     print(f"Added {len(new_videos)} new videos to Google Sheet '{VIDEOS_SHEET_NAME}'.")
-
-def update_videos_sheet(videos, env=os.getenv("ENV", "prod"), sheet_name="", redis_client=None, prefix=""):
-    """Appends unique videos to Google Sheet (youtube_videos), using Redis if available."""
+def update_videos_sheet(
+    videos,
+    env=os.getenv("ENV", "prod"),
+    sheet_name="",
+    redis_client=None,
+    prefix=""
+):
+    """Appends unique videos to Google Sheet using Redis to prevent duplicates after insert.
+    args:
+        videos: list[dict] : List of video dicts containing at least 'video_id
+        env: str : Environment name for namespacing keys
+        sheet_name: str : Optional sheet name. If empty, defaults to "vids".
+        redis_client: redis.Redis : Optional Redis client. If None, a new client will be
+            created based on the environment.
+        prefix: str : Optional prefix for Redis keys
+    returns:
+        int : Number of new videos added to the sheet
+    """
     if not videos:
         print("No videos to add.")
         return 0
 
     fieldnames = list(videos[0].keys())
-    if redis_client is None and not prefix and not sheet_name:
-        existing_ids, needs_header = get_existing_keys_cached("vids" if not sheet_name else "tester_vids", ["video_id"], env=env)
-    else:
-        existing_ids, needs_header = get_existing_keys_cached(
-            key_fields=["video_id"],
-            sheet_name=sheet_name if sheet_name else "vids",
-            redis_client=redis_client,
-            prefix=prefix
-        )
 
-    new_videos = [v for v in videos if (v["video_id"],) not in existing_ids]
+    # Fetch existing IDs (only those marked as in_sheet=yes)
+    existing_ids, needs_header = get_existing_keys_cached(
+        key_fields=["video_id"],
+        sheet_name=sheet_name if sheet_name else "vids",
+        redis_client=redis_client,
+        prefix=prefix
+    )
+
+    # Filter new videos
+    new_videos = [v for v in videos if v["video_id"] not in existing_ids]
+
+    print(f"Found {len(new_videos)} new unique videos to add.")
+
     if not new_videos:
         print("No new unique videos to add.")
         return 0
 
+    # Append to sheet
     _append_to_sheet(sheet_name if sheet_name else "vids", fieldnames, new_videos, needs_header)
-    print(f"Added {len(new_videos)} new videos to Google Sheet '{sheet_name if sheet_name else "vids"}'.")
+    print(f"Added {len(new_videos)} new videos to Google Sheet '{sheet_name if sheet_name else 'vids'}'.")
+
+    # Mark Redis entries as actually written into the sheet
+    if redis_client:
+        for v in new_videos:
+            key = f"{prefix}:{v['video_id']}"
+            redis_client.hset(key, "in_sheet", "yes")
+
     return len(new_videos)
-
-# def update_trending_sheet(snapshots):
-#     """Appends unique trending snapshots to Google Sheet (youtube_trending_history)."""
-#     if not snapshots:
-#         print("No snapshots to add.")
-#         return
-
-#     fieldnames = ["video_id", "publish_date", "views", "likes", "comment_count", "recorded_at"]
-#     existing_pairs, needs_header = _get_existing_keys(TRENDING_SHEET_NAME, ["video_id", "recorded_at"])
-
-#     new_rows = [
-#         {k: s.get(k) for k in fieldnames}
-#         for s in snapshots
-#         if (s.get("video_id"), s.get("recorded_at")) not in existing_pairs
-#     ]
-
-#     if not new_rows:
-#         print("No new trending snapshots to add.")
-#         return
-
-#     _append_to_sheet(TRENDING_SHEET_NAME, fieldnames, new_rows, needs_header)
-#     print(f"Added {len(new_rows)} new records to Google Sheet '{TRENDING_SHEET_NAME}'.")
 
 
 def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
@@ -309,6 +326,8 @@ def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
 
     args:
         snapshots (list[dict]): List of trending snapshot records.
+        xclient: gspread.Client : Optional gspread client. If None, uses default client.
+        sheet_name (str): Optional sheet name. If empty, defaults to "snapshots".
     """
     if not snapshots:
         print("No snapshots to add.")
@@ -350,7 +369,51 @@ def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
 def clear_sheet_completely(client, sheet_name):
     """
     Deletes all rows and headers from a Google Sheet worksheet.
+    Used for testing purposes.
+    args:
+        client: gspread.Client : gspread client
+        sheet_name: str : Name of the sheet/tab to clear
     """
     sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
     sheet.clear()
     print(f"Cleared all content from '{sheet_name}'")
+
+## Old functions for reference
+# def update_videos_sheet(videos):
+#     """Appends unique videos to Google Sheet (youtube_videos)."""
+#     if not videos:
+#         print("No videos to add.")
+#         return
+
+#     fieldnames = list(videos[0].keys())
+#     existing_ids, needs_header = _get_existing_keys(VIDEOS_SHEET_NAME, ["video_id"])
+
+#     new_videos = [v for v in videos if (v["video_id"],) not in existing_ids]
+#     if not new_videos:
+#         print("No new unique videos to add.")
+#         return
+
+#     _append_to_sheet(VIDEOS_SHEET_NAME, fieldnames, new_videos, needs_header)
+#     print(f"Added {len(new_videos)} new videos to Google Sheet '{VIDEOS_SHEET_NAME}'.")
+
+# def update_trending_sheet(snapshots):
+#     """Appends unique trending snapshots to Google Sheet (youtube_trending_history)."""
+#     if not snapshots:
+#         print("No snapshots to add.")
+#         return
+
+#     fieldnames = ["video_id", "publish_date", "views", "likes", "comment_count", "recorded_at"]
+#     existing_pairs, needs_header = _get_existing_keys(TRENDING_SHEET_NAME, ["video_id", "recorded_at"])
+
+#     new_rows = [
+#         {k: s.get(k) for k in fieldnames}
+#         for s in snapshots
+#         if (s.get("video_id"), s.get("recorded_at")) not in existing_pairs
+#     ]
+
+#     if not new_rows:
+#         print("No new trending snapshots to add.")
+#         return
+
+#     _append_to_sheet(TRENDING_SHEET_NAME, fieldnames, new_rows, needs_header)
+#     print(f"Added {len(new_rows)} new records to Google Sheet '{TRENDING_SHEET_NAME}'.")

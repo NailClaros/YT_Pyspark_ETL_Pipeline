@@ -1,7 +1,6 @@
-from g_sheets import update_videos_sheet, update_trending_sheet, clear_sheet_completely
-
-def test_simple_add_videos_sheet(redis_test_client, read_sheet_rows):
-    test_videos = [
+from g_sheets import update_videos_sheet, update_trending_sheet, cache_video_ids_idempotent
+import pytest
+test_videos = [
         {
             "video_id": "test_vid_1",
             "title": "Test Video 1",
@@ -32,16 +31,69 @@ def test_simple_add_videos_sheet(redis_test_client, read_sheet_rows):
         }
     ]
 
+@pytest.mark.parametrize("videos", [test_videos])
+def test_simple_add_videos_sheet(videos, redis_test_client, read_sheet_rows):
+
+    cache_video_ids_idempotent(videos, redis_client=redis_test_client)
+    
     added_count = update_videos_sheet(
-        test_videos,
+        videos,
         sheet_name="tester-vids",
         redis_client=redis_test_client,
-        prefix="ptest:"
+        prefix="ptest"
     )   
 
     assert added_count == 2
 
     records = read_sheet_rows("tester-vids")
+
+    assert any(r["video_id"] == "test_vid_1" for r in records)
+    assert any(r["video_id"] == "test_vid_2" for r in records)
+
+@pytest.mark.parametrize("videos", [test_videos])
+def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows):
+    x = cache_video_ids_idempotent(videos, redis_client=redis_test_client)
+    print(f"Cached {len(x)} video IDs: {x}")
+    # First addition
+    added_count_1 = update_videos_sheet(
+        videos,
+        sheet_name="tester-vids",
+        redis_client=redis_test_client,
+        prefix="ptest"
+    )   
+    assert added_count_1 == 2
+    records = read_sheet_rows("tester-vids")
+    assert len(records) == 2  # 2 records added
+    assert any(r["video_id"] == "test_vid_1" for r in records)
+    assert any(r["video_id"] == "test_vid_2" for r in records)
+
+    cache_video_ids_idempotent(videos, redis_client=redis_test_client)
+    # Second addition (duplicates)
+    added_count_2 = update_videos_sheet(
+        videos,
+        sheet_name="tester-vids",
+        redis_client=redis_test_client,
+        prefix="ptest"
+    )   
+    assert added_count_2 == 0  # No new records should be added
+
+    records = read_sheet_rows("tester-vids")
+
+    assert len(records) == 2  # Still only 2 records
+    assert any(r["video_id"] == "test_vid_1" for r in records)
+    assert any(r["video_id"] == "test_vid_2" for r in records)
+
+@pytest.mark.parametrize("videos", [test_videos])
+def test_simple_add_trending_sheet(videos, gsheet_client, read_sheet_rows):
+    added_count = update_trending_sheet(
+        snapshots=videos,
+        sheet_name="tester-snaps",
+        xclient=gsheet_client
+    )   
+
+    assert added_count == 2
+
+    records = read_sheet_rows("tester-snaps")
 
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)

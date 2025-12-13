@@ -124,70 +124,47 @@ def s3_test_bad_client():
 
 @pytest.fixture(scope="session")
 def redis_test_client():
-    import redis
-    client = redis.Redis(
-                host=os.getenv("REDIS_HOST"),
-                port=int(os.getenv("REDIS_PORT", 6379)),
-                username=os.getenv("REDIS_USERNAME"),
-                password=os.getenv("REDIS_PASSWORD"),
-                ssl=bool(os.getenv("REDIS_SSL", "false").lower() == "true"),
-                db=int(os.getenv("REDIS_DB", 0)),
-                decode_responses=True
-            )
+    from g_sheets import get_redis_client
+    client = get_redis_client()
     yield client
 
     keys = client.keys("ptest:*")
     if keys:
         client.delete(*keys)
-    
-def cache_video_ids_idempotent(redis_client, videos, prefix="ptest", ttl_hours=24.0):
-    """
-    Cache videos under the given prefix in Redis idempotently:
-    - Only insert new videos if not present.
-    - Refresh TTL for existing keys.
-    """
-    if not videos:
-        return
-    from datetime import datetime
-    ttl_seconds = int(ttl_hours * 3600)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    pipe = redis_client.pipeline(transaction=True)
-    added, refreshed = 0, 0
-
-    for video in videos:
-        vid = video.get("video_id")
-        if not vid:
-            continue
-        key = f"{prefix}:{vid}"
-
-        if redis_client.exists(key):
-            pipe.expire(key, ttl_seconds)
-            refreshed += 1
-        else:
-            pipe.hset(key, mapping={
-                "video_id": vid,
-                "title": video.get("title", ""),
-                "cached_at": now,
-            })
-            pipe.expire(key, ttl_seconds)
-            added += 1
-
-    pipe.execute()
-    return {"added": added, "refreshed": refreshed}
+@pytest.fixture(scope="session")
+def redis_bad_client():
+    import redis
+    """A Redis client guaranteed to fail for testing fallback logic."""
+    client = redis.Redis(
+        host="invalid-host",
+        port=0,              
+        username="wrong",
+        password="wrong",
+        db=0,
+        decode_responses=True,
+    )
+    return client
 
 
-def get_cached_video_ids(redis_client, prefix="ptest"):
-    """Return all video_ids in Redis with the given prefix."""
-    keys = redis_client.keys(f"{prefix}:*")
-    return {k.split(":", 1)[1] for k in keys}
+@pytest.fixture(scope="function")
+def get_cached_video_ids(redis_client):
+    def _get_cached(prefix="ptest"):
+        """Return all video_ids in Redis with the given prefix."""
+        keys = redis_client.keys(f"{prefix}:*")
+        return {k.split(":", 1)[1] for k in keys}
+    return _get_cached
 
 
-def delete_prefix_keys(redis_client, prefix="ptest"):
+@pytest.fixture(autouse=True)
+def delete_prefix_keys(redis_test_client, prefix="ptest"):
     """Delete all keys in Redis starting with the given prefix."""
-    keys = redis_client.keys(f"{prefix}:*")
+
+    yield  # run the test
+
+    keys = redis_test_client.keys(f"{prefix}:*")
     if keys:
-        redis_client.delete(*keys)
+        redis_test_client.delete(*keys)
 
 
 import json

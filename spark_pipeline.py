@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-
+import time
 def run_pipeline(api_key=os.getenv("YT_API_KEY")):
     try:
         # # Testind code to wipe tables and sheets and verify functionality
@@ -29,17 +29,29 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
 
         print("\n\033[33m=== Checking Redis cache for existing videos ===\033[0m\n")
         cached_ids, _ = get_existing_keys_cached(key_fields=["video_id"])
-        new_videos = [v for v in videos if v["video_id"] not in cached_ids]
+        print(f"Cached IDs retrieved: {cached_ids}")
+        print(f"secondary return from get_existing_keys_cached: {_}\n")
+        current_video_ids = {v["video_id"] for v in videos}
+        
+        print(f"Current video IDs from API: {current_video_ids}\n")
+        new_videos = [v for v in videos if v["video_id"] not in current_video_ids]
+        print(f"new videos to process: {[v['video_id'] for v in new_videos]}")
 
-        print(f"Fetched {len(videos)} videos from API.")
+        print(f"Fetched {len(videos)} videos from API.\n")
+
         print(f"{len(cached_ids)} cached videos found.")
         print(f"{len(new_videos)} new videos will be processed.\n")
 
+        
         ##-- If no new videos, skip DB and Sheet updates and just update snapshot sheet
         if not new_videos:
             print("\033[33m******\033[0m")
             print("\033[33mAll videos are already cached — skipping DB and video Sheet updates and updating snapshot sheet.\033[0m")
             print("\033[33m******\033[0m\n\n")
+
+            ##-- Update Redis cache
+            print("\n=== Updating Redis cache ===\n")
+            cache_video_ids_idempotent(videos, ttl_hours=24)
 
             print("\033[4m" + "--Running Database functions.." + "\033[0m")
             db_result_snapshots = add_trending_snapshot_P(videos)
@@ -52,10 +64,6 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
             print("\033[4m" + "--Running Google Sheets functions..." + "\033[0m\n\n")
             #-- Update trending snapshots sheet
             update_trending_sheet(videos)
-
-            ##-- Update Redis cache
-            print("\n=== Updating Redis cache ===\n")
-            cache_video_ids_idempotent(videos, ttl_hours=24)
 
             print("\n\n\033[1;32mPipeline completed successfully!\033[0m\n")
 
@@ -84,16 +92,17 @@ def run_pipeline(api_key=os.getenv("YT_API_KEY")):
             raise Exception("DB insertion failed.")
 
 
+        ##-- Update Redis cache
+        print("\n=== Updating Redis cache ===\n")
+        # cache videos
+        cache_video_ids_idempotent(videos=videos, ttl_hours=24)
+
+
         print("\033[4m" + "--Running Google Sheets functions..." + "\033[0m\n\n")
         #-- Update videos sheet
         update_videos_sheet(new_videos)
         #-- Update trending snapshots sheet
         update_trending_sheet(videos)
-
-        ##-- Update Redis cache
-        print("\n=== Updating Redis cache ===\n")
-        # cache videos
-        cache_video_ids_idempotent(new_videos, ttl_hours=24)
 
         print("\n\n\033[1;32mPipeline completed successfully!\033[0m\n")
         return {"status": "success"}

@@ -13,7 +13,7 @@ def get_s3_client():
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
 
-def list_files(bucket, s3=None):
+def list_files(bucket,  prefix="", s3=None):
     """Lists all file names in the given S3 bucket and returns them.\n
     bucket: str : Name of the S3 bucket
     s3: boto3.client : Optional S3 client. If None, the proper client will be created for production use.
@@ -21,7 +21,8 @@ def list_files(bucket, s3=None):
     if s3 is None:
         s3 = get_s3_client()
 
-    response = s3.list_objects_v2(Bucket=bucket)
+    response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+
     if "Contents" in response:
         keys = [obj["Key"] for obj in response["Contents"]]
         return keys
@@ -92,7 +93,7 @@ def extract_s3_parts(s3_path:str):
     prefix = parts[1] if len(parts) > 1 else ""
     return bucket, prefix
 
-def delete_old_week_folders(bucket, prefix, current_week, s3=None):
+def delete_old_week_folders(bucket, current_week, prefix="",   s3=None):
     """
     Deletes old 'week_YYYY_MM_DD' folders in S3, keeping only the current week's folder.
     Uses list_files() internally.
@@ -102,33 +103,62 @@ def delete_old_week_folders(bucket, prefix, current_week, s3=None):
         if s3 is None:
             s3 = get_s3_client()
 
-        files = list_files(bucket, s3)
-        import re
-        week_pattern = re.compile(r"week_(\d{4}_\d{2}_\d{2})")
+        # List everything under main prefix
+        files = list_files(bucket, prefix=prefix, s3=s3)
 
-        # Identify week folders
+        import re
+        week_pattern = re.compile(r"week_(\d{4}_\d{2}_\d{2})/")
+
         weeks_found = set()
         for key in files:
             match = week_pattern.search(key)
-            if match:
+            if match and match.group(1) != current_week:
                 weeks_found.add(match.group(1))
+        
+        if not weeks_found:
+            print(f"Weeks found for deletion (excluding current week {current_week}): 0")
+            return {"status": "completed! no files deleted"}
+        
+        counter = 0
 
         for week in weeks_found:
             if week != current_week:
-                old_prefix = f"{prefix}/week_{week}"
-                print(f"--Deleting old week folder: {old_prefix}")
-                objs_to_delete = [
-                    {"Key": key} for key in files if key.startswith(old_prefix)
-                ]
-                if objs_to_delete:
-                    s3.delete_objects(
-                        Bucket=bucket,
-                        Delete={"Objects": objs_to_delete}
-                    )
+                old_folder_prefix = f"{prefix}/week_{week}/"
+                print(f"Deleting contents of old folder: {old_folder_prefix}")
+                x = delete_folder_contents(bucket, old_folder_prefix, s3=s3)
+                print(f"Deleted {x.get('count', 0)} objects from {old_folder_prefix}")
+                counter += x.get('count', 0)
 
-        return {"status": "completed"}
+        return {"status": "completed!", "deleted": counter}
     
     except Exception as e:
         print(f"Error deleting old week folders: {e}")
         return {"status": "error"}
-    
+
+
+def delete_folder_contents(bucket, folder_prefix, s3=None):
+    """
+    Deletes all objects inside an S3 folder prefix 
+    """
+    if s3 is None:
+        s3 = get_s3_client()
+
+    if not folder_prefix.endswith("/"):
+        folder_prefix = folder_prefix + "/"
+
+    files = list_files(bucket, prefix=folder_prefix, s3=s3)
+
+    if not files:
+        return {"status": "nothing to delete"}
+
+    objects_to_delete = [{"Key": key} for key in files]
+
+    if not objects_to_delete:
+        return {"status": "nothing to delete"}
+
+    s3.delete_objects(
+        Bucket=bucket,
+        Delete={"Objects": objects_to_delete}
+    )
+
+    return {"status": "deleted contents", "count": len(files)}
