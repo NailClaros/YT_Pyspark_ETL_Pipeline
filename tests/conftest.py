@@ -38,6 +38,7 @@ def bad_db_conn():
 
     return conn
 
+@pytest.fixture(autouse=True)
 def prepare_youtube_tables(db_conn):
     """Create test YouTube tables in Postgres before tests and clean up after."""
     schema = os.getenv("POSTGRES_DB", "public")
@@ -81,6 +82,39 @@ def prepare_youtube_tables(db_conn):
         );
     """)
 
+    cur.execute(f"""
+        CREATE OR REPLACE FUNCTION "{schema}".prevent_close_timestamps_test()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM "{schema}".youtube_trending_history_p_test t
+                WHERE t.video_id = NEW.video_id
+                  AND t.id <> COALESCE(NEW.id, -1)
+                  AND ABS(EXTRACT(EPOCH FROM (t.recorded_at - NEW.recorded_at))) < 40 * 60
+            ) THEN
+                RAISE NOTICE
+                    '❌ Insert blocked: video_id % already has a record within 40 minutes of %',
+                    NEW.video_id, NEW.recorded_at;
+                RETURN NULL;
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$;
+    """)
+
+    # Attach trigger
+    cur.execute(f"""
+        CREATE TRIGGER prevent_close_timestamps_test_trigger
+        BEFORE INSERT OR UPDATE
+        ON "{schema}".youtube_trending_history_p_test
+        FOR EACH ROW
+        EXECUTE FUNCTION "{schema}".prevent_close_timestamps_test();
+    """)
+
     db_conn.commit()
     cur.close()
 
@@ -93,7 +127,7 @@ def prepare_youtube_tables(db_conn):
     cur.close()
 
 @pytest.fixture
-def db_rows(db_conn):
+def db_rows_trend(db_conn):
     def _get_all():
         cur = db_conn.cursor()
         cur.execute(f'SELECT * FROM {os.getenv("POSTGRES_DB", "public")}.youtube_trending_history_p_test ORDER BY "recorded_at";')
@@ -103,6 +137,17 @@ def db_rows(db_conn):
         return rows
     return _get_all
 
+
+@pytest.fixture
+def db_rows_videos(db_conn):
+    def _get_all():
+        cur = db_conn.cursor()
+        cur.execute(f'SELECT * FROM {os.getenv("POSTGRES_DB", "public")}.youtube_videos_p_test ORDER BY "video_id";')
+        rows = cur.fetchall()
+        cur.close()
+        print(rows)
+        return rows
+    return _get_all
 
 @pytest.fixture(scope="session")
 def s3_test_good_client():
@@ -146,14 +191,6 @@ def redis_bad_client():
     )
     return client
 
-
-@pytest.fixture(scope="function")
-def get_cached_video_ids(redis_client):
-    def _get_cached(prefix="ptest"):
-        """Return all video_ids in Redis with the given prefix."""
-        keys = redis_client.keys(f"{prefix}:*")
-        return {k.split(":", 1)[1] for k in keys}
-    return _get_cached
 
 
 @pytest.fixture(autouse=True)

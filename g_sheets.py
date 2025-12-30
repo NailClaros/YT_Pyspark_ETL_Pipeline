@@ -262,8 +262,6 @@ def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
         return len(cleaned_rows)
 
 
-
-
 def update_videos_sheet(
     videos,
     env=os.getenv("ENV", "prod"),

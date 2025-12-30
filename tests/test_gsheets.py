@@ -1,5 +1,7 @@
 from g_sheets import update_videos_sheet, update_trending_sheet, cache_video_ids_idempotent
 import pytest
+from time import sleep
+
 test_videos = [
         {
             "video_id": "test_vid_1",
@@ -49,6 +51,7 @@ def test_simple_add_videos_sheet(videos, redis_test_client, read_sheet_rows):
 
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)
+    sleep(4)  # To avoid rate limits in tests
 
 @pytest.mark.parametrize("videos", [test_videos])
 def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows):
@@ -82,9 +85,11 @@ def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows):
     assert len(records) == 2  # Still only 2 records
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)
+    sleep(4)  # To avoid rate limits in tests
 
 @pytest.mark.parametrize("videos", [test_videos])
 def test_simple_add_trending_sheet(videos, gsheet_client, read_sheet_rows):
+    sleep(4)  # To avoid rate limits in tests
     added_count = update_trending_sheet(
         snapshots=videos,
         sheet_name="tester-snaps",

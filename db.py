@@ -116,7 +116,7 @@ def add_trending_snapshot_O(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
 ##Pipeline version with partitioned tables below
 #Use these functions instead of the above for partitioned tables
 
-def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema=None):
+def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), table="", schema=None):
     """
     Inserts a video into youtube_videos.
     Skips if video_id already exists.
@@ -139,7 +139,7 @@ def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema=None):
         with conn.cursor() as cur:
             for vid in videos:
                 cur.execute(f"""
-                    INSERT INTO {schema}.youtube_videos_p (
+                    INSERT INTO {schema}.{table if table else "youtube_videos_p"} (
                         video_id, title, channel_title,
                         category_id, publish_date, tags, views, likes,
                         comment_count, thumbnail_link, recorded_at
@@ -173,7 +173,7 @@ def add_video_P(videos, conn=None, env=os.getenv("ENV", "prod"), schema=None):
         if close_conn and conn:
             conn.close()
     
-def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), schema=None):
+def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), table="",schema=None):
     """
     Adds a daily trending snapshot.
     Skips if an identical record already exists.
@@ -200,7 +200,7 @@ def add_trending_snapshot_P(snapshot, conn=None, env=os.getenv("ENV", "prod"), s
 
             for vid in snapshot:
                 cur.execute(f"""
-                    INSERT INTO {schema}.youtube_trending_history_p (
+                    INSERT INTO {schema}.{table if table else "youtube_trending_history_p"} (
                         video_id, publish_date, views, likes,
                         comment_count, recorded_at
                     )
