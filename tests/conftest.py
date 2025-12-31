@@ -167,6 +167,16 @@ def s3_test_bad_client():
         aws_secret_access_key="bad_secret",
     )
 
+@pytest.fixture(scope="function")
+def clear_s3_test_bucket(s3_test_good_client):
+    from awsfuncs import delete_folder_contents
+    bucket_name = os.getenv("BUCKET_NAME_T")
+
+    yield  # run the test
+
+    delete_folder_contents(bucket_name, prefix="pipeline/ptest", s3=s3_test_good_client)
+    
+
 @pytest.fixture(scope="session")
 def redis_test_client():
     from g_sheets import get_redis_client
@@ -232,7 +242,7 @@ def read_sheet_rows(gsheet_client):
     return _read
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="function")
 def clear_sheets_after_test(gsheet_client):
     """Automatically clears specific sheets after every test."""
     sheet_id = os.getenv("SHEET_ID")

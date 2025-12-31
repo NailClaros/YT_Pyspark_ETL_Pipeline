@@ -154,3 +154,80 @@ def test_add_videos_duplicate_P(videos, db_rows_videos):
     assert "test_vid_1" in video_ids
     assert "test_vid_2" in video_ids
 
+@pytest.mark.parametrize("snapshots", [test_snapshot_bad])
+def test_bad_conn_add_trending_snapshots(snapshots, bad_db_conn, db_rows_trend):
+    check = add_trending_snapshot_P(snapshots, conn=bad_db_conn, env="test", table="youtube_trending_history_p_test")
+    assert check == 0  # failure due to bad connection
+
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+
+@pytest.mark.parametrize(("snapshots", "videos"),
+    [(test_snapshot_good, test_videos),])
+def test_add_trending_snapshots(snapshots, db_rows_trend, videos):
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+    check = add_video_P(videos, env="test", table="youtube_videos_p_test")## preload data for relational integrity
+    assert check == 1  # success
+
+    check = add_trending_snapshot_P(snapshots, env="test", table="youtube_trending_history_p_test")
+    assert check == 1  # success
+
+    rows = db_rows_trend()
+    assert len(rows) == 4  # all 4 snapshots added
+
+    recorded_ats = [row[6].strftime("%Y-%m-%d %H:%M:%S") for row in rows]
+    assert "2023-10-02 12:00:00" in recorded_ats
+    assert "2023-10-02 12:05:00" in recorded_ats
+    assert "2023-10-02 13:00:00" in recorded_ats
+    assert "2023-10-02 13:05:00" in recorded_ats
+
+@pytest.mark.parametrize(("snapshots", "videos"),
+    [(test_snapshot_bad, test_videos),])
+def test_add_trending_snapshots_bad_duplicate(snapshots, db_rows_trend, videos):
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+    check = add_video_P(videos, env="test", table="youtube_videos_p_test")## preload data for relational integrity
+    assert check == 1  # success
+
+    check1 = add_trending_snapshot_P(snapshots, env="test", table="youtube_trending_history_p_test")
+    assert check1 == 1  # success
+
+    rows = db_rows_trend()
+    assert len(rows) == 2  # 2 unique snapshots added
+
+    # Attempt to add duplicates
+    check2 = add_trending_snapshot_P(snapshots, env="test", table="youtube_trending_history_p_test")
+    assert check2 == 1  # success but no duplicates added
+
+    rows = db_rows_trend()
+    assert len(rows) == 2  # still only 2 unique snapshots
+
+@pytest.mark.parametrize(("snapshots", "videos"),
+    [(test_snapshot_good, test_videos),])
+def test_add_trending_snapshots_bad_db(bad_db_conn, snapshots, videos, db_rows_trend):
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+    check = add_video_P(videos, conn=bad_db_conn, env="test", table="youtube_videos_p_test")## preload data for relational integrity
+    assert check == 0  # failure due to bad connection
+
+    check = add_trending_snapshot_P(snapshots, conn=bad_db_conn, env="test", table="youtube_trending_history_p_test")
+    assert check == 0  # failure due to bad connection
+
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+@pytest.mark.parametrize("snapshots", [test_snapshot_good])
+def test_add_trending_snapshots_no_videos(snapshots, db_rows_trend):
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB
+
+    check = add_trending_snapshot_P(snapshots, env="test", table="youtube_trending_history_p_test")
+    assert check == 0  # failure due to missing videos
+
+    rows = db_rows_trend()
+    assert len(rows) == 0  # no rows added in real DB

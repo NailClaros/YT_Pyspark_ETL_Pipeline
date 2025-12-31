@@ -61,23 +61,30 @@ def load_categorical_data(spark, jdbc_url, props, env: str = os.getenv("ENV")):
     df = spark.read.jdbc(url=jdbc_url, table=table_name, properties=props)
     return df
 
-def get_output_path(env: str = os.getenv("ENV")): 
+def get_output_path(env: str = os.getenv("ENV"), ptest_mode: bool = False): 
     """Returns the S3 output path based on environment.
     arg:
-    env: str : 'test' or 'prod' to determine output path
+        env: str : 'test' or 'prod' to determine output path
+    returns:
+        str : S3 path for output Parquet files
     """
     
+    if ptest_mode:
+        return "s3a://yt-pyspark/pipeline/ptest"
+
     if env == "test":
         return "s3a://yt-pyspark/pipeline/test"
     return "s3a://yt-pyspark/pipeline/prod"
 
-def run_spark_job(env = os.getenv("ENV", "test")):
+def run_spark_job(env = os.getenv("ENV", "test"), ptest_mode: bool = False):
     """Main function to run the Spark ETL job and store pyspark parquets to a s3 bucket
     for analysis and reading.
     arg:
-    env: str : 'test' or 'prod' to determine configurations
+        env: str : 'test' or 'prod' to determine configurations
+        ptest_mode: bool : If True, runs in test mode with limited data
     returns:
-    dict : Status of the job and output path if successful
+        dict : Status of the job and output path if successful
+
     """
     try:
         print(f"\n\033[34mRunning Spark job in [{env.upper()}] mode\033[0m\n")
@@ -174,7 +181,7 @@ def run_spark_job(env = os.getenv("ENV", "test")):
         return {"status": "failure"}
         
 
-run_spark_job()
+run_spark_job(ptest_mode=True)
 
 def read_s3_parquet(output_path=get_output_path(), env=os.getenv("ENV", "test")):
     """

@@ -175,16 +175,27 @@ def _get_existing_keys(sheet_name, key_fields):
     needs_header = False
     return existing, needs_header
 
-## Redis_function
 def get_existing_keys_cached(
     key_fields,
     sheet_name="",
     env=os.getenv("ENV", "test"),
     redis_client=None,
-    prefix=""
+    prefix="",
+    only_in_sheet: bool = False,
 ):
     """
     Pull existing keys from Redis.
+    
+    Args:
+        key_fields (list[str]): Fields used for fallback sheet lookup
+        sheet_name (str): Google Sheet name for fallback
+        env (str): Environment
+        redis_client: Optional redis client
+        prefix (str): Optional redis key prefix
+        only_in_sheet (bool): 
+            - False → return all cached IDs
+            - True → return only IDs marked with in_sheet=yes
+
     Returns:
         existing_ids (set[str])
         needs_header (bool)
@@ -194,7 +205,11 @@ def get_existing_keys_cached(
     prefix = f"{prefix}:" if prefix else f"{env}:"
 
     if redis_client:
-        print("Fetching existing keys from Redis...")
+        print(
+            "Fetching existing keys from Redis..."
+            if not only_in_sheet
+            else "Fetching existing in-sheet keys from Redis..."
+        )
         try:
             existing_ids = set()
 
@@ -202,16 +217,28 @@ def get_existing_keys_cached(
                 if isinstance(k, bytes):
                     k = k.decode()
 
+                if only_in_sheet:
+                    in_sheet = redis_client.hget(k, "in_sheet")
+                    if isinstance(in_sheet, bytes):
+                        in_sheet = in_sheet.decode()
+
+                    if in_sheet != "yes":
+                        continue
+
                 video_id = k.split(":", 1)[1]
                 existing_ids.add(video_id)
 
-            print(f"Found {len(existing_ids)} cached IDs in Redis.")
+            label = "cached IDs"
+            if only_in_sheet:
+                label = "cached IDs marked as in_sheet"
+
+            print(f"Found {len(existing_ids)} {label} in Redis.")
             return existing_ids, False
 
         except Exception as e:
             print(f"Redis unavailable ({e}) — falling back to Sheet.")
 
-    # Fallback
+    # ---- Sheet fallback ----
     if not sheet_name:
         return set(), True
 
@@ -258,7 +285,7 @@ def _append_to_sheet(sheet_name, fieldnames, rows, needs_header):
     # Batch append all rows at once
     if cleaned_rows:
         sheet.append_rows(cleaned_rows, value_input_option="USER_ENTERED")
-        print(f"Added {len(cleaned_rows)} rows to Google Sheet '{sheet_name}'.")
+        print(f"** Appending function - Added {len(cleaned_rows)} rows to Google Sheet '{sheet_name}'.")
         return len(cleaned_rows)
 
 
@@ -291,10 +318,11 @@ def update_videos_sheet(
         key_fields=["video_id"],
         sheet_name=sheet_name if sheet_name else "vids",
         redis_client=redis_client,
-        prefix=prefix
+        prefix=prefix,
+        only_in_sheet=True,
     )
 
-    # Filter new videos
+
     new_videos = [v for v in videos if v["video_id"] not in existing_ids]
 
     print(f"Found {len(new_videos)} new unique videos to add.")
@@ -305,7 +333,7 @@ def update_videos_sheet(
 
     # Append to sheet
     _append_to_sheet(sheet_name if sheet_name else "vids", fieldnames, new_videos, needs_header)
-    print(f"Added {len(new_videos)} new videos to Google Sheet '{sheet_name if sheet_name else 'vids'}'.")
+    print(f"Successfully Added {len(new_videos)} new videos to Google Sheet '{sheet_name if sheet_name else 'vids'}' - Update_videos_sheet function.")
 
     # Mark Redis entries as actually written into the sheet
     if redis_client:
@@ -332,8 +360,10 @@ def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
         return 0
 
     fieldnames = ["video_id", "publish_date", "views", "likes", "comment_count", "recorded_at"]
-    if xclient is None and sheet_name == "":
+    if xclient is None and not sheet_name:
         sheet = client.open_by_key(os.getenv("SHEET_ID")).worksheet("snapshots")
+    elif xclient is None and sheet_name:
+        sheet = client.open_by_key(os.getenv("SHEET_ID")).worksheet(sheet_name)
     else:
         sheet = xclient.open_by_key(os.getenv("SHEET_ID")).worksheet(sheet_name)
 
@@ -358,13 +388,13 @@ def update_trending_sheet(snapshots, xclient=None, sheet_name=""):
     # Batch append
     if cleaned_rows:
         sheet.append_rows(cleaned_rows, value_input_option="USER_ENTERED")
-        print(f"Added {len(cleaned_rows)} trending snapshot records to '{sheet_name if sheet_name else "Snapshots"}'.")
+        print(f"Successfully Added {len(cleaned_rows)} trending snapshot records to '{sheet_name if sheet_name else "Snapshots"}'. - Update_trending_sheet function.")
         return len(cleaned_rows)
     else:
         print("No valid snapshot data to append.")
 
 
-def clear_sheet_completely(client, sheet_name):
+def clear_sheet_completely(sheet_name:str, xclient = None):
     """
     Deletes all rows and headers from a Google Sheet worksheet.
     Used for testing purposes.
@@ -372,7 +402,11 @@ def clear_sheet_completely(client, sheet_name):
         client: gspread.Client : gspread client
         sheet_name: str : Name of the sheet/tab to clear
     """
-    sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
+
+    if xclient is None:
+        sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
+    else:
+        sheet = xclient.open_by_key(SHEET_ID).worksheet(sheet_name)
     sheet.clear()
     print(f"Cleared all content from '{sheet_name}'")
 

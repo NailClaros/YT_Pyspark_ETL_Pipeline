@@ -8,7 +8,7 @@ def test_succesful_run_yt_api():
     videos = run_yt_api(yt_key=os.getenv("YT_API_KEY"), size=5)
     assert isinstance(videos, list), "Expected a list of videos"
     assert len(videos) == 5, "Expected 5 videos to be fetched"
-    sleep(5)  # To avoid rate limits in tests
+    sleep(2)  # To avoid rate limits in tests
 
 def test_run_yt_api_no_key():
     """Test the run_yt_api function with no API key."""
@@ -16,7 +16,7 @@ def test_run_yt_api_no_key():
     # without an API key, it should run as long as the proper key env vars are set 
     assert len(videos) == 5, "Expected 5 videos to be fetched even with no API key"
     assert isinstance(videos, list), "Expected a list type even when no API key is provided"
-    sleep(5)  # To avoid rate limits in tests
+    sleep(2)  # To avoid rate limits in tests
 
 def test_run_yt_api_invalid_key():
     """Test the run_yt_api function with an invalid API key."""
@@ -27,7 +27,7 @@ def test_run_yt_api_invalid_key():
 
     assert isinstance(videos, list), "Expected a list of videos"
     assert len(videos) == 0, "Expected no videos to be fetched with an invalid API key"
-    sleep(5)  # To avoid rate limits in tests
+    sleep(2)  # To avoid rate limits in tests
 
 def test_run_yt_api_zero_size():
     """Test the run_yt_api function with size set to zero."""
@@ -35,7 +35,7 @@ def test_run_yt_api_zero_size():
     ## should return an empty list
     assert isinstance(videos, list), "Expected a list of videos"
     assert len(videos) == 0, "Expected no videos to be fetched when size is zero"
-    sleep(5)  # To avoid rate limits in tests
+    sleep(2)  # To avoid rate limits in tests
 
 def test_run_yt_api_negative_size():
     """Test the run_yt_api function with a negative size."""
@@ -43,4 +43,4 @@ def test_run_yt_api_negative_size():
     ## should return an empty list
     assert isinstance(videos, list), "Expected a list of videos"
     assert len(videos) == 0, "Expected no videos to be fetched when size is negative"
-    sleep(5)  # To avoid rate limits in tests
+    sleep(2)  # To avoid rate limits in tests

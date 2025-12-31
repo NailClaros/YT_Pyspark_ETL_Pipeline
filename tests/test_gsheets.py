@@ -34,7 +34,7 @@ test_videos = [
     ]
 
 @pytest.mark.parametrize("videos", [test_videos])
-def test_simple_add_videos_sheet(videos, redis_test_client, read_sheet_rows):
+def test_simple_add_videos_sheet(videos, redis_test_client, read_sheet_rows, clear_sheets_after_test):
 
     cache_video_ids_idempotent(videos, redis_client=redis_test_client)
     
@@ -51,10 +51,10 @@ def test_simple_add_videos_sheet(videos, redis_test_client, read_sheet_rows):
 
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)
-    sleep(4)  # To avoid rate limits in tests
+    sleep(3)  # To avoid rate limits in tests
 
 @pytest.mark.parametrize("videos", [test_videos])
-def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows):
+def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows, clear_sheets_after_test):
     x = cache_video_ids_idempotent(videos, redis_client=redis_test_client)
     print(f"Cached {len(x)} video IDs: {x}")
     # First addition
@@ -85,11 +85,11 @@ def test_add_duplicate_videos_sheet(videos, redis_test_client, read_sheet_rows):
     assert len(records) == 2  # Still only 2 records
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)
-    sleep(4)  # To avoid rate limits in tests
+    sleep(3)  # To avoid rate limits in tests
 
 @pytest.mark.parametrize("videos", [test_videos])
-def test_simple_add_trending_sheet(videos, gsheet_client, read_sheet_rows):
-    sleep(4)  # To avoid rate limits in tests
+def test_simple_add_trending_sheet(videos, gsheet_client, read_sheet_rows, clear_sheets_after_test):
+    
     added_count = update_trending_sheet(
         snapshots=videos,
         sheet_name="tester-snaps",
@@ -102,4 +102,5 @@ def test_simple_add_trending_sheet(videos, gsheet_client, read_sheet_rows):
 
     assert any(r["video_id"] == "test_vid_1" for r in records)
     assert any(r["video_id"] == "test_vid_2" for r in records)
+    sleep(3)  # To avoid rate limits in tests
 
